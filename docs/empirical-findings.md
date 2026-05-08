@@ -118,7 +118,7 @@ oscilloscope probing of the camera flex on both sockets. We have neither;
 the empirical workaround is sufficient.
 
 ### Pollen overlay-name reversal
-On Shane's hardware, with the camera in the **primary** CSI socket, the
+On the test hardware, with the camera in the **primary** CSI socket, the
 chip answers via the `cam1` overlay (i2c@70000, kernel bus 0). With the
 camera in the **secondary** socket, it answers via the `cam0` overlay
 (i2c@88000, kernel bus 10). Counterintuitive. If you ever decide to drop
