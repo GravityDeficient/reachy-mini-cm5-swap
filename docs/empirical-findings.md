@@ -210,18 +210,64 @@ The `if not all([v4l2h264enc, capsfilter_h264])` guard further down in the
 function would catch the None — but it's after the `.set_property()` call,
 so the AttributeError fires first.
 
-### Verification of fix
-After applying the patch (None-guard + fallback to `openh264enc`):
-- Daemon log no longer shows the AttributeError.
-- `state` transitions from `error` to `running`.
-- WebRTC signaling server listens on port 8443 and accepts Listener
-  connections from the desktop app.
-- Camera registers cleanly: `Registered camera ... using PiSP variant
-  BCM2712_D0`.
+### v1 (initial) fix and the silent-failure follow-up
+First-pass patch: None-guard around `make("v4l2h264enc")` and fall back to
+`openh264enc`. After applying:
+- Daemon `state` transitions from `error` to `running`. ✅
+- Signaling server on 8443 listens, accepts Listener connections. ✅
+- Camera registers cleanly: `Registered camera ... using PiSP variant BCM2712_D0`. ✅
+- **But Producer never registers, no video flows, desktop app's camera tile
+  spins forever**. ❌
 
-End-to-end stream verification (Listener actually receives frames) is
-pending — depends on a Pollen app being launched, which we haven't done
-on test hardware yet.
+Why? `openh264enc`'s sink template explicitly requires
+`video/x-raw,format=I420`. `v4l2h264enc` on CM4 was a hardware accelerator
+that did colour-space conversion as a silicon side-effect — it transparently
+accepted YUY2 from `libcamerasrc`. `openh264enc` doesn't. With the original
+linking chain (`queue_webrtc.link(v4l2h264enc)` then v4l2h264enc → caps →
+webrtcsink), GStreamer's caps negotiator returns False from `link()` because
+YUY2 ↔ I420 is not a passthrough. Pollen never checks the return value, so
+the failure is silent.
+
+### Verification of v2 fix
+v2 inserts `videoconvert ! video/x-raw,format=I420` between `queue_webrtc`
+and the encoder when openh264enc is in use. After applying v2 + restarting
+daemon:
+
+```
+07:37:37 ... gst_plugin_webrtc_signalling::handlers: registered as [Producer]
+              peer_id=49a89f0b-...
+07:37:37 ... started a session id=a6de04cd-...
+              producer_id=49a89f0b-... consumer_id=18cb6d9c-...
+07:37:37 ... Received message Ok(Text(...sdp.offer...H264/90000...
+              profile-level-id=42c01f...))
+07:37:38 ... Received message Ok(Text(...sdp.answer...recvonly...))
+07:37:38 ... ICE candidates exchanged (host + srflx via STUN)
+07:37:40 ... Pipeline latency (live=True, min_latency=84000000,
+              max_latency=1010232000)
+```
+
+Producer registers, session opens, SDP offer (H.264 baseline + OPUS audio +
+datachannel) is sent and answered, ICE candidates exchange, pipeline goes
+live. End-to-end WebRTC working.
+
+### CPU cost of openh264enc software encoding
+At 1296×972 @ 30 fps and 5 Mbps, openh264enc with `complexity=0` on a CM5's
+4× A76 cores runs at ~10–15% of one core. Acceptable for telepresence; well
+below the threshold where it'd starve other tasks. If quality is insufficient,
+`complexity=1` or `complexity=2` (medium / high) trade more CPU for better
+rate-distortion at the same bitrate.
+
+### Benign warning to ignore
+After the fix, journal includes:
+```
+The `rtpgccbwe` element is not available not doing any congestion control:
+BoolError { ... Failed to find element factory with name 'rtpgccbwe' ... }
+```
+That's `rtpgccbwe` (Google Congestion Control for WebRTC) being unavailable.
+It's part of `gstreamer1.0-plugins-rs` extras, not in the Pollen image. Without
+it, the stream runs at fixed 5 Mbps with no auto-bandwidth-adaptation. Fine
+for LAN. If you want wide-area streaming with adaptive bitrate later, install
+the relevant package — but you don't need it for typical Reachy Mini use.
 
 ### CPU cost of openh264enc software encoding
 At 1296×972 @ 30 fps and 5 Mbps, openh264enc with `complexity=0` on a CM5's

@@ -38,7 +38,7 @@ finding that resolves the camera issue.
 | 1 | **Motor UART** | Pollen's stock `dtoverlay=uart3` references a CM4 IP block that maps to different CM5 pads; the SDK hardcodes `/dev/ttyAMA3` which on CM5 with CM4-style overlay points at the wrong physical pins. | [`patches/01-uart-fix.sh`](patches/01-uart-fix.sh) — switch overlay to `uart2-pi5` and patch SDK to use `/dev/ttyAMA2`. Original Travid's fix; included for completeness. |
 | 2 | **Camera (IMX708) CSI** | The primary CSI socket on Pollen's head PCB has trace routing that doesn't carry CSI data lanes correctly to BCM2712. i2c works (chip ID readable) but `Camera frontend has timed out!` — no pixel data. | **Hardware fix only**: physically move camera flex to the *secondary* CSI socket. No software patch needed. See [docs/empirical-findings.md](docs/empirical-findings.md). |
 | 3 | **Fan controller (EMC2301)** | Pollen's dtoverlay declares the chip on i2c-0 but on CM5 it's physically wired to i2c-10. Compounding: the `+rpt-rpi-2712` kernel build doesn't ship an `emc2301` driver. With no host control, EMC2301 runs at 100% PWM as failsafe. | [`scripts/cm5-fan-ctl.py`](scripts/cm5-fan-ctl.py) + [`scripts/cm5-fan-ctl.service`](scripts/cm5-fan-ctl.service) — userspace thermostat that writes the EMC2301 directly via `/dev/i2c-10`. Hysteretic bands 42–68 °C. |
-| 4 | **WebRTC media pipeline** | `media_server.py` calls `Gst.ElementFactory.make("v4l2h264enc")` then immediately calls `.set_property()` *before* the None-check. BCM2712 dropped the legacy V4L2 hardware H.264 encoder, so `make()` returns `None`, raising `AttributeError`. Affects both Pollen daemon 1.2.x (`webrtc_daemon.py`) and 1.7.x (`media_server.py`) — same bug, different file. | [`patches/02-mediaserver-openh264.py`](patches/02-mediaserver-openh264.py) — None-guarded fallback to `openh264enc` software encoder. CM5's 4× A76 cores at 2.4 GHz comfortably encode 1296×972 @ 30 fps at 5 Mbps in software. |
+| 4 | **WebRTC media pipeline** | Two compounding bugs: (a) `media_server.py` calls `Gst.ElementFactory.make("v4l2h264enc")` then immediately calls `.set_property()` *before* the None-check, raising `AttributeError` because BCM2712 dropped the legacy V4L2 hardware H.264 encoder; (b) `openh264enc` (the software encoder we fall back to) requires `video/x-raw,format=I420` input while `libcamerasrc` outputs `YUY2`, so the pipeline link silently fails to negotiate caps and no frames flow to webrtcsink. Affects both Pollen daemon 1.2.x (`webrtc_daemon.py`) and 1.7.x (`media_server.py`). | [`patches/02-mediaserver-openh264.py`](patches/02-mediaserver-openh264.py) — None-guarded fallback to `openh264enc` AND conditionally injects `videoconvert` + `capsfilter(I420)` before the encoder. CM5's 4× A76 cores at 2.4 GHz comfortably encode 1296×972 @ 30 fps at 5 Mbps in software. |
 
 ## Verification status
 
@@ -58,14 +58,14 @@ Tested on:
 | Pollen daemon reaches `state: "running"`, motors initialized with PID gains | ✅ |
 | Fan controller stopgap holds CPU at idle without thermal events | ✅ |
 | **Camera captures via `rpicam-still`** (1296×972 JPEG, valid EXIF, sharp colors) | ✅ |
-| **Camera streams end-to-end through desktop-app WebRTC pipeline** | ⚠️ Not yet confirmed |
-| Microphone audio captures end-to-end | ⚠️ Not yet confirmed |
+| **Camera streams end-to-end through desktop-app WebRTC pipeline** | ✅ |
+| Microphone audio captures end-to-end | ✅ (conversation app responds to voice) |
 
-The end-to-end WebRTC stream depends on a Pollen app being launched (the
-daemon ties pipeline state to running apps). At the time of writing, no
-end-user app had been deployed to validate the full audio+video stream.
-That's the next verification step; PRs welcome confirming results on other
-hardware.
+End-to-end WebRTC video + audio confirmed working with Pollen's desktop app
+talking to a CM5 robot running the bundled `reachy_mini_conversation_app`.
+Producer registers with the signalling server, SDP offer/answer completes,
+ICE candidates exchange, and video flows. Reports from other hardware
+configurations welcome.
 
 ## What's NOT addressed here
 

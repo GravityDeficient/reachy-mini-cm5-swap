@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.0 — 2026-05-07
+
+### Fixed
+- **`02-mediaserver-openh264.py`**: encoder fallback was only half the fix.
+  `openh264enc` requires `video/x-raw,format=I420` input but `libcamerasrc`
+  on Pi outputs `YUY2`. v4l2h264enc on CM4 transparently accepted YUY2 (its
+  silicon did the colour conversion); openh264enc does not. Without a
+  `videoconvert + capsfilter(I420)` bridge, GStreamer's caps negotiation
+  silently failed (`Gst.Element.link()` returns False), the pipeline ran
+  with no data flowing to webrtcsink, and the WebRTC Producer never
+  registered with the signalling server — symptom: desktop app's camera
+  tile spins forever on "connecting".
+- The patch now sets a `_cm5_uses_openh264` flag in the encoder selection
+  block and conditionally injects `videoconvert + capsfilter(I420)` between
+  `queue_webrtc` and the encoder when the openh264enc fallback is in use.
+- **End-to-end WebRTC stream now confirmed working** through Pollen desktop
+  app on CM5: Producer registers, SDP offer/answer completes, ICE
+  candidates exchange, video flows.
+
 ## 0.1.0 — 2026-05-06
 
 Initial public release.

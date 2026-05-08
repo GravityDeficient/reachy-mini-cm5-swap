@@ -33,23 +33,30 @@ for the patch shape.
 >
 > Pi 5 / CM5 (BCM2712) dropped the legacy V4L2 hardware H.264 encoder
 > (`v4l2h264enc`). On a CM5-based Reachy Mini, `media_server.py` currently
-> crashes media server initialization with:
+> hits two compounding bugs in `_build_rpi_encoder_branch`:
 >
-> ```
-> ERROR: Failed to initialize media server: 'NoneType' object has no
-> attribute 'set_property'
-> ```
->
-> The crash is in the RPi H.264 encoder branch: `make("v4l2h264enc")` returns
-> `None`, and `.set_property()` is called before the existing
-> `if not all([...])` guard.
+> 1. `make("v4l2h264enc")` returns `None`, and `.set_property()` is called
+>    before the existing `if not all([...])` guard, raising AttributeError
+>    that kills media server init.
+> 2. After the encoder is None-guarded and falls back to `openh264enc`, the
+>    pipeline still doesn't deliver frames because `openh264enc` only
+>    accepts `video/x-raw,format=I420` while `libcamerasrc` outputs `YUY2`.
+>    `Gst.Element.link()` returns False from the unchecked `queue_webrtc.link
+>    (v4l2h264enc)` call; pipeline runs with no data flow, Producer never
+>    registers with the WebRTC signalling server, desktop app's camera tile
+>    spins forever on "connecting".
 >
 > This PR:
 > - Adds a None-guard around the `v4l2h264enc` setup
-> - Falls back to `openh264enc` (software H.264 encoder, available in
->   `gstreamer1.0-plugins-bad`, already installed in the Reachy Mini OS image)
-> - Tested on `CM5116064` + Reachy Mini wireless + OS image v0.2.3.
->   Daemon now reaches `state: "running"` instead of `state: "error"`.
+> - Falls back to `openh264enc` (software H.264 encoder, already in
+>   `gstreamer1.0-plugins-bad` shipped with the Reachy Mini OS image)
+> - **Inserts `videoconvert + capsfilter(format=I420)` between
+>   `queue_webrtc` and the encoder when openh264enc is in use**, so caps
+>   negotiation succeeds and frames flow.
+> - Tested on `CM5116064` + Reachy Mini wireless + OS image v0.2.3
+>   + daemon 1.7.1. End-to-end WebRTC stream confirmed: Producer registers,
+>   SDP offer/answer completes, ICE candidates exchange, pipeline live with
+>   ~84 ms minimum latency.
 > - CPU cost of software encoding at 1296×972 / 30 fps / 5 Mbps is ~10–15%
 >   of one A76 core — well within budget for the CM5's 4× A76 @ 2.4 GHz.
 
