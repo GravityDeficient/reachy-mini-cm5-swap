@@ -1,0 +1,13 @@
+[Unit]
+Description=Reachy Mini CM5 fan thermostat (stopgap until emc2301 driver lands)
+Documentation=https://github.com/GravityDeficient/reachy-mini-cm5-swap
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/sbin/cm5-fan-ctl.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
