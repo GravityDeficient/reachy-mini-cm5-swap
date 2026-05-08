@@ -87,13 +87,6 @@ All four fixes touch files inside `/venvs/mini_daemon/lib/python3.12/site-packag
 which Pollen's daemon auto-update will overwrite. Run `./reapply.sh` after
 any daemon update until upstream lands these fixes.
 
-## Upstream PRs
-
-The right long-term home for these fixes is `pollen-robotics/reachy_mini`.
-Open at the time of writing:
-
-- [ ] None yet — drafts in [docs/upstream-prs.md](docs/upstream-prs.md)
-
 ## Acknowledgments
 
 - **Travid** — opened the trail in [Geerling #800](https://github.com/geerlingguy/raspberry-pi-pcie-devices/issues/800)
@@ -102,16 +95,3 @@ Open at the time of writing:
   which was the lead that ultimately solved the camera issue.
 - **Jeff Geerling** — for hosting the broader CM5/Pi-PCIe ecosystem
   conversation.
-- **Pollen Robotics** — for the Reachy Mini hardware and for the open OS image
-  that made all of this possible.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
-
----
-
-*This repository documents an unofficial community modification. It is not
-affiliated with or endorsed by Pollen Robotics. Modifying your robot may void
-warranty and could damage hardware. Proceed at your own risk and keep a backup
-of your CM4 eMMC image so you can roll back.*
